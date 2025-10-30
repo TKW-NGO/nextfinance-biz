@@ -1,26 +1,26 @@
-@import "tailwindcss";
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/*
+  The original Geist font setup had complex CSS variables.
+  We are cleaning this up and letting Tailwind utility classes
+  (like bg-gray-900 on the <html> tag in layout.tsx)
+  handle the primary colors for a consistent dark theme.
+*/
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Keeping Geist variables as defined in layout.tsx */
+  --font-inter: 'Inter', sans-serif; /* Add Inter fallback/reference if desired */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Ensure the body font is used and background is handled by Tailwind */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Tailwind classes on the <html> and in components should manage colors */
+  min-height: 100vh;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  
+  /* Remove old Geist/boilerplate color vars which cause light background */
+  background: initial;
+  color: initial;
 }
