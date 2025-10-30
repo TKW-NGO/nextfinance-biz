@@ -1,9 +1,38 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Image from "next/image";
 
-// --- MOCK DATA & UTILITIES ---
+// --- TYPE DEFINITIONS ---
 
-const mockPortfolio = {
+type Portfolio = {
+  value: number;
+  todayChange: number;
+  todayPercent: number;
+  sinceStart: number;
+  sinceStartPercent: number;
+};
+
+type Stock = {
+  id: string;
+  name: string;
+  price: number;
+  change: number;
+  percent: number;
+  held: number;
+  marketCap: string;
+};
+
+type ChartPoint = { x: number; y: number };
+
+type NewsItemType = {
+  id: number;
+  title: string;
+  source: string;
+  time: string;
+};
+
+// --- MOCK DATA ---
+
+const initialMockPortfolio: Portfolio = {
   value: 12534.56,
   todayChange: 153.21,
   todayPercent: 1.24,
@@ -11,7 +40,7 @@ const mockPortfolio = {
   sinceStartPercent: 38.45,
 };
 
-const initialMockStocks = [
+const initialMockStocks: Stock[] = [
   { id: 'TSLA', name: 'Tesla, Inc.', price: 923.45, change: 10.12, percent: 1.11, held: 5, marketCap: '870B' },
   { id: 'AAPL', name: 'Apple Inc.', price: 175.80, change: -1.50, percent: -0.85, held: 12, marketCap: '2.8T' },
   { id: 'AMZN', name: 'Amazon.com, Inc.', price: 135.20, change: 5.40, percent: 4.16, held: 0, marketCap: '1.4T' },
@@ -21,14 +50,15 @@ const initialMockStocks = [
   { id: 'META', name: 'Meta Platforms, Inc.', price: 300.70, change: -0.80, percent: -0.27, held: 2, marketCap: '850B' },
 ];
 
-const mockNews = [
+const mockNews: NewsItemType[] = [
   { id: 1, title: "TSLA Rises on AI Optimism", source: "MarketWatch", time: "1h ago" },
   { id: 2, title: "Fed Minutes Signal Potential Rate Hike", source: "Bloomberg", time: "2h ago" },
   { id: 3, title: "AAPL Launches New Wearable Tech", source: "TechCrunch", time: "3h ago" },
   { id: 4, title: "AMZN Acquires Logistics Startup", source: "Reuters", time: "4h ago" },
 ];
 
-// Utility function to format currency
+// --- UTILITIES ---
+
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -36,13 +66,12 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
-// Utility function to get the color class based on change
 const getChangeColor = (value: number) => {
   return value > 0 ? 'text-green-400' : value < 0 ? 'text-red-400' : 'text-gray-400';
 };
 
 // Generates a simple random walk data set for a chart
-const generateHistoricalData = (startPrice = 100) => {
+const generateHistoricalData = (startPrice: number) => {
   let price = startPrice;
   const data = [];
   for (let i = 0; i < 100; i++) {
@@ -51,6 +80,82 @@ const generateHistoricalData = (startPrice = 100) => {
   }
   return data;
 };
+
+// --- CUSTOM HOOK FOR LIVE DATA SIMULATION ---
+
+const useLiveMarketData = (initialPortfolio: Portfolio, initialStocks: Stock[]) => {
+  const [portfolio, setPortfolio] = useState(initialPortfolio);
+  const [stocks, setStocks] = useState(initialStocks);
+  const [chartData, setChartData] = useState<ChartPoint[]>(generateHistoricalData(initialPortfolio.value));
+  const [loading, setLoading] = useState(true);
+
+  // Simulate initial loading time
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Live market update effect (runs every 3 seconds)
+  useEffect(() => {
+    if (loading) return;
+
+    const interval = setInterval(() => {
+      // 1. Update Stocks
+      setStocks(currentStocks => currentStocks.map(stock => {
+        const volatility = stock.price * 0.005; // 0.5% max swing
+        const randomChange = (Math.random() * volatility * 2 - volatility);
+        const newPrice = Math.max(0.01, stock.price + randomChange);
+        const newChange = stock.change + randomChange;
+        const newPercent = (newChange / (newPrice - newChange)) * 100;
+        
+        return {
+          ...stock,
+          price: parseFloat(newPrice.toFixed(2)),
+          change: parseFloat(newChange.toFixed(2)),
+          percent: parseFloat(newPercent.toFixed(2)),
+        };
+      }));
+
+      // 2. Update Portfolio Value (based on a calculation from held stocks, for realism)
+      setPortfolio(currentPortfolio => {
+        const totalStockValue = stocks.reduce((sum, stock) => sum + (stock.price * stock.held), 0);
+        
+        // Simulate a small market drift based on current total value
+        const drift = (Math.random() - 0.5) * 50; 
+        const newTotalValue = totalStockValue + currentPortfolio.value + drift;
+
+        const delta = newTotalValue - currentPortfolio.value;
+        
+        const newChange = currentPortfolio.todayChange + delta;
+        const newPercent = (newChange / (newTotalValue - newChange)) * 100;
+
+        // Add new value to chart
+        setChartData(currentChartData => {
+            const newPoint = { x: currentChartData.length, y: newTotalValue };
+            // Keep the chart length manageable (e.g., last 100 points)
+            const updatedData = [...currentChartData.slice(-99), newPoint];
+            return updatedData;
+        });
+
+        return {
+          ...currentPortfolio,
+          value: parseFloat(newTotalValue.toFixed(2)),
+          todayChange: parseFloat(newChange.toFixed(2)),
+          todayPercent: parseFloat(newPercent.toFixed(2)),
+        };
+      });
+    }, 3000); // Update every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [loading, stocks]); // Dependency on 'stocks' to calculate new portfolio value
+
+  const chartColor = portfolio.todayChange >= 0 ? '#34D399' : '#F87171';
+
+  return { portfolio, stocks, chartData, chartColor, loading };
+};
+
 
 // --- ICON COMPONENTS (Inline SVG for reliability) ---
 const ArrowIcon = ({ up }: { up: boolean }) => (
@@ -97,21 +202,19 @@ const CloseIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 // --- SIMPLE SVG CHART COMPONENT ---
-type ChartPoint = { x: number; y: number };
 const SimpleChart = ({ data, color, height = 160 }: { data: ChartPoint[], color: string, height?: number }) => {
   if (!data || data.length === 0) return <div style={{ height }} className="flex items-center justify-center text-gray-500">No data available</div>;
 
   // Determine min/max values for scaling
   const yValues = data.map(d => d.y);
-  const minY = Math.min(...yValues) * 0.95; // 5% buffer
-  const maxY = Math.max(...yValues) * 1.05; // 5% buffer
+  const minY = Math.min(...yValues) * 0.95; 
+  const maxY = Math.max(...yValues) * 1.05; 
   const rangeY = maxY - minY;
   const numPoints = data.length;
 
   // Convert data points to SVG path commands
   const pathData = data.map((d, i) => {
     const x = (i / (numPoints - 1)) * 100;
-    // Normalize Y value to a 0-100 range, then invert for SVG coordinates
     const yNormalized = ((d.y - minY) / rangeY) * 100;
     const y = 100 - yNormalized;
     return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
@@ -196,7 +299,6 @@ const Header = ({ setSearchQuery }: { setSearchQuery: (query: string) => void })
 };
 
 // --- 2. PORTFOLIO VALUE & CHART COMPONENT ---
-type Portfolio = typeof mockPortfolio;
 const PortfolioOverview = ({ portfolio, chartData, chartColor }: { portfolio: Portfolio, chartData: ChartPoint[], chartColor: string }) => {
   const changeColor = getChangeColor(portfolio.todayChange);
 
@@ -237,7 +339,6 @@ const PortfolioOverview = ({ portfolio, chartData, chartColor }: { portfolio: Po
 };
 
 // --- 3. WATCHLIST / STOCKS COMPONENT ---
-type Stock = typeof initialMockStocks[0];
 const StockRow = ({ stock, onSelect }: { stock: Stock, onSelect: (stock: Stock) => void }) => {
   const changeColor = getChangeColor(stock.change);
   const isPositive = stock.change >= 0;
@@ -299,7 +400,6 @@ const Watchlist = ({ stocks, onSelectStock }: { stocks: Stock[], onSelectStock: 
 };
 
 // --- 4. NEWS/ACTIVITY SIDEBAR ---
-type NewsItemType = typeof mockNews[0];
 const NewsItem = ({ news }: { news: NewsItemType }) => (
   <div className="py-4 border-b border-gray-700/50 last:border-b-0 cursor-pointer hover:bg-gray-800/20 rounded-md -mx-4 px-4 transition duration-150">
     <p className="text-sm font-medium text-white mb-1 leading-snug">{news.title}</p>
@@ -333,12 +433,11 @@ const StockDetailModal = ({ stock, onClose }: { stock: Stock, onClose: () => voi
   const chartColor = isPositive ? '#34D399' : '#F87171';
   const changeColor = getChangeColor(stock.change);
 
-  // Generate chart data based on the stock's current price
-  const [chartData] = useState(generateHistoricalData(stock.price));
+  // Use useMemo to generate chart data once per stock opening
+  const [chartData] = useState(() => generateHistoricalData(stock.price));
   const [tradeAmount, setTradeAmount] = useState('');
   const [tradeType, setTradeType] = useState('Buy');
 
-  // Replaced alert with console.log as alerts are discouraged in modern web apps and in Canvas.
   const handleTrade = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tradeAmount || isNaN(parseFloat(tradeAmount))) {
@@ -377,6 +476,8 @@ const StockDetailModal = ({ stock, onClose }: { stock: Stock, onClose: () => voi
             {formatCurrency(stock.change)} ({stock.percent.toFixed(2)}%) Today
             <ArrowIcon up={isPositive} />
           </div>
+          {/* Note: This modal chart does not update live to simplify its logic, 
+              but the price above it reflects the live price from the main component's state. */}
           <SimpleChart data={chartData} color={chartColor} height={250} />
 
           <div className="flex justify-around mt-4 text-gray-400 text-sm font-medium">
@@ -454,38 +555,37 @@ const StockDetailModal = ({ stock, onClose }: { stock: Stock, onClose: () => voi
 
 // --- MAIN APP COMPONENT ---
 export default function Home() {
-  const [portfolio] = useState(mockPortfolio);
-  const [stocks] = useState(initialMockStocks);
-  const [news] = useState(mockNews);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
-  const [chartData] = useState(generateHistoricalData(portfolio.value));
-
-  // Determine chart color based on overall portfolio change
-  const chartColor = portfolio.todayChange >= 0 ? '#34D399' : '#F87171';
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null); 
+  
+  // Use the new custom hook for live data
+  const { portfolio, stocks, chartData, chartColor, loading } = useLiveMarketData(initialMockPortfolio, initialMockStocks);
 
   // Filter stocks based on search query
-  const filteredStocks = stocks.filter(stock =>
+  const filteredStocks = useMemo(() => stocks.filter(stock =>
     stock.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
     stock.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Simulate loading time
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, []);
+  ), [stocks, searchQuery]);
 
   const handleSelectStock = useCallback((stock: Stock) => {
-    setSelectedStock(stock);
-  }, []);
+    // When opening the modal, we use the latest stock state
+    setSelectedStock(stocks.find(s => s.id === stock.id) || stock);
+  }, [stocks]);
 
   const handleCloseModal = useCallback(() => {
     setSelectedStock(null);
   }, []);
+
+  // Update selected stock in modal if its price changes while open
+  useEffect(() => {
+    if (selectedStock) {
+        const updatedStock = stocks.find(s => s.id === selectedStock.id);
+        if (updatedStock && updatedStock.price !== selectedStock.price) {
+            setSelectedStock(updatedStock);
+        }
+    }
+  }, [stocks, selectedStock]);
+
 
   if (loading) {
     return (
@@ -502,8 +602,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 font-inter text-gray-100">
-      {/* Note: The global font import is typically handled in globals.css/layout.tsx in Next.js, but we'll include the CSS fix in globals.css below */}
+    <div className="min-h-screen bg-gray-900 font-sans text-gray-100">
       <Header setSearchQuery={setSearchQuery} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-10">
@@ -516,7 +615,7 @@ export default function Home() {
 
           {/* Sidebar (News) */}
           <div className="lg:col-span-1">
-            <Sidebar news={news} />
+            <Sidebar news={mockNews} />
           </div>
         </div>
 
